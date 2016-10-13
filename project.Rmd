@@ -1,0 +1,130 @@
+---
+title: 'Practical Machine Learning: Exercise Type Prediction'
+author: "David Waterman"
+date: "October 12, 2016"
+output: html_document
+#    fig_height: 9
+#    fig_width: 9
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction  
+Activity tracking devices have become increasingly popular and provide users access to a great deal of personal data about their movement. This project analyzes data collected from accelerometers on the belts, forearms, arms, and dumbbells of 6 participants. We will use this data to predict what type of exercise activity they were performing during different time segments.
+
+
+## Data Preprocessing  
+```{r, cache = T}
+library(caret)
+library(rpart)
+library(randomForest)
+library(corrplot)
+library(rattle)
+```
+
+### Load the Data
+```{r, cache = T}
+# If the data has not yet been downloaded, we will download it
+train_url <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train_file <- "./data/pml-training.csv"
+test_file  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(train_file)) {
+  download.file(train_url, destfile=train_file, method="curl")
+}
+if (!file.exists(test_file)) {
+  download.file(test_url, destfile=test_file, method="curl")
+}
+
+# Read the data in and get the dimensions
+train_raw <- read.csv("./data/pml-training.csv")
+test_raw <- read.csv("./data/pml-testing.csv")
+dim(train_raw)
+dim(test_raw)
+```
+The training data set contains 19622 observations and 160 variables, while the testing data set contains 20 observations and 160 variables. The "classe" variable in the training set is the outcome to predict. 
+
+### Clean the Data
+To prepare the data for analysis, we will first remove columns that contain missing values.
+```{r, cache = T}
+train_raw <- train_raw[, colSums(is.na(train_raw)) == 0] 
+test_raw <- test_raw[, colSums(is.na(test_raw)) == 0] 
+```  
+
+Next, we remove columns that are not accelerometer measurements.
+```{r, cache = T}
+classe <- train_raw$classe
+train_to_remove <- grepl("^X|timestamp|window", names(train_raw))
+train_raw <- train_raw[, !train_to_remove]
+train_clean <- train_raw[, sapply(train_raw, is.numeric)]
+train_clean$classe <- classe
+test_to_remove <- grepl("^X|timestamp|window", names(test_raw))
+test_raw <- test_raw[, !test_to_remove]
+test_clean <- test_raw[, sapply(test_raw, is.numeric)]
+```
+
+The cleaned training data set now contains 19622 observations and 53 variables, while the testing data set contains 20 observations and 53 variables.
+
+### Slice the Data
+Next we split 30% of the training data into a validation set for checking our algorithm with cross validation before final testing, and keep the remaining 70% for regular training.
+
+```{r, cache = T}
+set.seed(22519) # For reproducibility
+in_train <- createDataPartition(train_clean$classe, p=0.70, list=F)
+train_data <- train_clean[in_train, ]
+val_data <- train_clean[-in_train, ]
+```
+
+
+## Data Modeling
+
+We will use the Random Forest algorithm as our predictive model for determining activity type because it automatically selects important variables and it is resistant to overfitting the training data. We will use 5-fold cross validation when applying the algorithm.  
+
+```{r, cache = T}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=train_data, method="rf", trControl=controlRf, ntree=250)
+modelRf
+```
+
+Next we will apply our algorithm to the validation data and estimate its accuracy.
+
+```{r, cache = T}
+predictRf <- predict(modelRf, val_data)
+confusionMatrix(val_data$classe, predictRf)
+accuracy <- postResample(predictRf, val_data$classe)
+accuracy
+oose <- 1 - as.numeric(confusionMatrix(val_data$classe, predictRf)$overall[1])
+oose
+```
+The estimated accuracy of the model is 99.39% and the estimated out-of-sample error is 0.61%.
+
+## Prediction Using the Test Data
+
+Finally, we will use our algorithm applied to the testing data to predict the activity type.
+
+```{r, cache = T}
+result <- predict(modelRf, test_clean[, -length(names(test_clean))])
+result
+```  
+
+## Appendix
+
+1. Correlation Matrix 
+
+```{r, cache = T}
+corrPlot <- cor(train_data[, -length(names(train_data))])
+corrplot(corrPlot, method="color")
+```
+
+2. Decision Tree
+
+```{r, cache = T}
+tree_model <- train(classe ~ ., data = train_data, method = "rpart",  
+                    trControl = controlRf)
+fancyRpartPlot(tree_model$finalModel)
+```
