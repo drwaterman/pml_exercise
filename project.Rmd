@@ -91,6 +91,8 @@ modelRf <- train(classe ~ ., data=train_data, method="rf", trControl=controlRf, 
 modelRf
 ```
 
+Based on the results of the resampling, we would expect to see an out-of-sample error of less than 1%.
+
 Next we will apply our algorithm to the validation data and estimate its accuracy.
 
 ```{r, cache = T}
